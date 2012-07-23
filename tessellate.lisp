@@ -83,7 +83,7 @@
 (defcfun ("gluTessEndContour" tess-end-contour) :void (tess :pointer))
 (defcfun ("gluTessEndPolygon" tess-end-polygon) :void (tess :pointer))
 (defcfun ("gluTessNormal" tess-normal) :void (tess :pointer) (valueX :double) (valueY :double) (valueZ :double))
-(defcfun ("gluTessProperty" tess-property) :void (tess :pointer) (which :int) (type :int))
+(defcfun ("gluTessProperty" tess-property) :void (tess :pointer) (which :int) (value :int))
 (defcfun ("gluTessVertex" tess-vertex) :void (tess :pointer) (location :pointer) (data :pointer))
 
 (defcfun ("gluGetTessProperty" get-tess-property) :void (tess :pointer) (which :int) (data :pointer))
@@ -143,23 +143,33 @@
   (format t "Tessellation error(~a): ~a~%" err (foreign-string-to-lisp (error-string err))))
 
 (defun do-tess-combine (coords vertex-data weights data-out)
-  (let ((vertex (foreign-alloc :double :count 6)))
-    (setf (mem-aref vertex :double 0) (mem-aref coords :double 0)
-          (mem-aref vertex :double 1) (mem-aref coords :double 1)
-          (mem-aref vertex :double 2) (mem-aref coords :double 2))
-    (loop for i from 3 to 6 do
-      (let ((weight0 (mem-aref weights :float 0))
-            (weight1 (mem-aref weights :float 1))
-            (weight2 (mem-aref weights :float 2))
-            (weight3 (mem-aref weights :float 3))
-            (vert-data0 (mem-aref (mem-aref vertex-data :double 0) :double i))
-            (vert-data1 (mem-aref (mem-aref vertex-data :double 1) :double i))
-            (vert-data2 (mem-aref (mem-aref vertex-data :double 2) :double i))
-            (vert-data3 (mem-aref (mem-aref vertex-data :double 3) :double i)))
-        (setf (mem-aref vertex :double i) (+ (* weight0 vert-data0)
-                                             (* weight1 vert-data1)
-                                             (* weight2 vert-data2)
-                                             (* weight3 vert-data3)))))
+  (declare (ignore weights vertex-data))
+  (let ((vertex (foreign-alloc :double :count 6))
+        (x (mem-aref coords :double 0))
+        (y (mem-aref coords :double 1))
+        (z (mem-aref coords :double 2)))
+    ;(format t "x,y,z: ~a ~a ~a~%" x y z)
+    (setf (mem-aref vertex :double 0) x
+          (mem-aref vertex :double 1) y
+          (mem-aref vertex :double 2) z
+          (mem-aref vertex :double 3) x
+          (mem-aref vertex :double 4) y
+          (mem-aref vertex :double 5) z)
+    ;; This is mainly for merging colors an junk, which can be important, but
+    ;; right now it's screwing up more than helping.
+    ;(loop for i from 3 to 6 do
+    ;  (let ((weight0 (mem-aref weights :float 0))
+    ;        (weight1 (mem-aref weights :float 1))
+    ;        (weight2 (mem-aref weights :float 2))
+    ;        (weight3 (mem-aref weights :float 3))
+    ;        (vert-data0 (mem-aref (mem-aref vertex-data :double 0) :double i))
+    ;        (vert-data1 (mem-aref (mem-aref vertex-data :double 1) :double i))
+    ;        (vert-data2 (mem-aref (mem-aref vertex-data :double 2) :double i))
+    ;        (vert-data3 (mem-aref (mem-aref vertex-data :double 3) :double i)))
+    ;    (setf (mem-aref vertex :double i) (+ (* weight0 vert-data0)
+    ;                                         (* weight1 vert-data1)
+    ;                                         (* weight2 vert-data2)
+    ;                                         (* weight3 vert-data3)))))
     (setf (mem-aref data-out :pointer) vertex)))
 
 (defmacro def-c-callback (name &rest args)
@@ -196,20 +206,20 @@
         (*cur-triangle-wind* nil)
         (*cur-type* nil)
         (tess (new-tess)))
-    (unwind-protect
-      (progn
-        (tess-callback tess +tess-begin+ (callback tess-begin-cb))
-        (tess-callback tess +tess-end+ (callback tess-end-cb))
-        (tess-callback tess +tess-vertex+ (callback tess-vertex-cb))
-        (tess-callback tess +tess-error+ (callback tess-error-cb))
-        (tess-callback tess +tess-combine+ (callback tess-combine-cb))
-        (with-foreign-object (poly-data :double (length points))
-          (loop for i from 0
-                for vert across points do
-            (let ((x (coerce (nth 0 vert) 'double-float))
-                  (y (coerce (nth 1 vert) 'double-float))
-                  (z 0d0))
-              (setf (mem-aref poly-data :pointer i) (foreign-alloc :double :initial-contents (list x y z)))))
+    (let ((poly-data (foreign-alloc :pointer :count (length points))))
+      (loop for i from 0
+            for vert across points do
+        (let ((x (coerce (nth 0 vert) 'double-float))
+              (y (coerce (nth 1 vert) 'double-float))
+              (z 0d0))
+          (setf (mem-aref poly-data :pointer i) (foreign-alloc :double :initial-contents (list x y z)))))
+      (unwind-protect
+        (progn
+          (tess-callback tess +tess-begin+ (callback tess-begin-cb))
+          (tess-callback tess +tess-end+ (callback tess-end-cb))
+          (tess-callback tess +tess-vertex+ (callback tess-vertex-cb))
+          (tess-callback tess +tess-error+ (callback tess-error-cb))
+          (tess-callback tess +tess-combine+ (callback tess-combine-cb))
           (tess-property tess +tess-winding-rule+ +tess-winding-odd+)
           (tess-begin-polygon tess (null-pointer))
           (tess-begin-contour tess)
@@ -217,20 +227,13 @@
             (let ((data (mem-aref poly-data :pointer i)))
               (tess-vertex tess data data)))
           (tess-end-contour tess)
-          (tess-end-polygon tess)
-          (delete-tess tess)
-          (dotimes (i (length points))
-            (foreign-free (mem-aref poly-data :pointer i))))))
+          (tess-end-polygon tess))
+        (dotimes (i (length points))
+          (foreign-free (mem-aref poly-data :pointer i)))
+        (delete-tess tess)))
     (mapcar (lambda (tri)
               (if (polygon-clockwise-p (coerce tri 'vector))
                   (reverse tri)
                   tri))
             (reverse *polygons*))))
 
-;(defun test ()
-;  (let* ((objs (svgp:parse-svg-file "resources/level/world1.svg"
-;                                    :curve-resolution 20
-;                                    :invert-y t
-;                                    :ignore-errors t))
-;         (points (getf (nth 53 objs) :point-data)))
-;    (glu-tessellate:tessellate points)))
