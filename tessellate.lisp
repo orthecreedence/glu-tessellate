@@ -98,6 +98,7 @@
 (defparameter *cur-triangle* nil)
 (defparameter *cur-triangle-wind* nil)
 (defparameter *cur-type* nil)
+(defparameter *created-points* nil)
 
 (defun do-tess-begin (type)
   ;(format t "begin: ~a~%" type)
@@ -148,6 +149,7 @@
         (x (mem-aref coords :double 0))
         (y (mem-aref coords :double 1))
         (z (mem-aref coords :double 2)))
+    (push vertex *created-points*)
     ;(format t "x,y,z: ~a ~a ~a~%" x y z)
     (setf (mem-aref vertex :double 0) x
           (mem-aref vertex :double 1) y
@@ -200,11 +202,13 @@
     (< sum 0)))
 
 (defun tessellate (points)
+  ;; if we rebind these with let, we can make the entire thing thread-safe
   (let ((*polygons* nil)
         (*triangles* nil)
         (*cur-triangle* nil)
         (*cur-triangle-wind* nil)
         (*cur-type* nil)
+        (*created-points* nil)
         (tess (new-tess)))
     (let ((poly-data (foreign-alloc :pointer :count (length points))))
       (loop for i from 0
@@ -230,6 +234,8 @@
           (tess-end-polygon tess))
         (dotimes (i (length points))
           (foreign-free (mem-aref poly-data :pointer i)))
+        (dolist (vert *created-points*)
+          (foreign-free vert))
         (delete-tess tess)))
     (mapcar (lambda (tri)
               (if (polygon-clockwise-p (coerce tri 'vector))
