@@ -83,7 +83,7 @@
 (defcfun ("gluTessEndContour" tess-end-contour) :void (tess :pointer))
 (defcfun ("gluTessEndPolygon" tess-end-polygon) :void (tess :pointer))
 (defcfun ("gluTessNormal" tess-normal) :void (tess :pointer) (valueX :double) (valueY :double) (valueZ :double))
-(defcfun ("gluTessProperty" tess-property) :void (tess :pointer) (which :int) (value :int))
+(defcfun ("gluTessProperty" tess-property) :void (tess :pointer) (which :int) (value :double))
 (defcfun ("gluTessVertex" tess-vertex) :void (tess :pointer) (location :pointer) (data :pointer))
 
 (defcfun ("gluGetTessProperty" get-tess-property) :void (tess :pointer) (which :int) (data :pointer))
@@ -201,7 +201,16 @@
                    (* (cadr cur-point) (car next-point)))))
     (< sum 0)))
 
-(defun tessellate (points)
+(defun get-winding-rule (wind-keyword)
+  (assert (find-if (lambda (k) (eq k wind-keyword)) '(:odd :nonzero :positive :negative :abs-geq-two)))
+  (case wind-keyword
+    (:odd +tess-winding-odd+)
+    (:nonzero +tess-winding-nonzero+)
+    (:positive +tess-winding-positive+)
+    (:negative +tess-winding-negative+)
+    (:abs-geq-two +tess-winding-abs-geq-two+)))
+
+(defun tessellate (points &key (winding-rule :odd))
   ;; if we rebind these with let, we can make the entire thing thread-safe
   (let ((*polygons* nil)
         (*triangles* nil)
@@ -224,7 +233,12 @@
           (tess-callback tess +tess-vertex+ (callback tess-vertex-cb))
           (tess-callback tess +tess-error+ (callback tess-error-cb))
           (tess-callback tess +tess-combine+ (callback tess-combine-cb))
-          (tess-property tess +tess-winding-rule+ +tess-winding-odd+)
+
+          ;; set the winding rule
+          (let ((wind (coerce (get-winding-rule winding-rule) 'double-float)))
+            (tess-property tess +tess-winding-rule+ wind))
+
+          ;; triangulate!
           (tess-begin-polygon tess (null-pointer))
           (tess-begin-contour tess)
           (dotimes (i (length points))
@@ -232,6 +246,8 @@
               (tess-vertex tess data data)))
           (tess-end-contour tess)
           (tess-end-polygon tess))
+
+        ;; clean up allocated memory
         (dotimes (i (length points))
           (foreign-free (mem-aref poly-data :pointer i)))
         (dolist (vert *created-points*)
