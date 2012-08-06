@@ -7,7 +7,7 @@ Yes, it supports concave polygons, and yes it supports holes. It also allows you
 rule you use to triangulate.
 
 It also returns every triangle it produces in counter-clockwise order. You can change this to
-clockwise by passing `:cw t`
+clockwise by passing `:cw t`.
 
 Usage
 -----
