@@ -202,7 +202,7 @@
     (< sum 0)))
 
 (defun get-winding-rule (wind-keyword)
-  (assert (find-if (lambda (k) (eq k wind-keyword)) '(:odd :nonzero :positive :negative :abs-geq-two)))
+  (assert (find wind-keyword '(:odd :nonzero :positive :negative :abs-geq-two)))
   (case wind-keyword
     (:odd +tess-winding-odd+)
     (:nonzero +tess-winding-nonzero+)
