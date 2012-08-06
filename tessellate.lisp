@@ -210,7 +210,7 @@
     (:negative +tess-winding-negative+)
     (:abs-geq-two +tess-winding-abs-geq-two+)))
 
-(defun tessellate (points &key (winding-rule :odd))
+(defun tessellate (points &key (holes nil) (winding-rule :odd) cw)
   ;; if we rebind these with let, we can make the entire thing thread-safe
   (let ((*polygons* nil)
         (*triangles* nil)
@@ -219,13 +219,25 @@
         (*cur-type* nil)
         (*created-points* nil)
         (tess (new-tess)))
-    (let ((poly-data (foreign-alloc :pointer :count (length points))))
+    (let ((poly-data (foreign-alloc :pointer :count (length points)))
+          (hole-data (make-array (length holes))))
       (loop for i from 0
             for vert across points do
         (let ((x (coerce (nth 0 vert) 'double-float))
               (y (coerce (nth 1 vert) 'double-float))
               (z 0d0))
           (setf (mem-aref poly-data :pointer i) (foreign-alloc :double :initial-contents (list x y z)))))
+      (when holes
+        (loop for i from 0
+              for hole in holes do
+          (let ((hole-ptr (foreign-alloc :pointer :count (length hole))))
+            (loop for i from 0
+                  for vert across hole do
+              (let ((x (coerce (nth 0 vert) 'double-float))
+                    (y (coerce (nth 1 vert) 'double-float))
+                    (z 0d0))
+                (setf (mem-aref hole-ptr :pointer i) (foreign-alloc :double :initial-contents (list x y z)))))
+            (setf (aref hole-data i) hole-ptr))))
       (unwind-protect
         (progn
           (tess-callback tess +tess-begin+ (callback tess-begin-cb))
@@ -245,17 +257,32 @@
             (let ((data (mem-aref poly-data :pointer i)))
               (tess-vertex tess data data)))
           (tess-end-contour tess)
+
+          (when holes
+            (loop for hole in holes
+                  for hole-ptr across hole-data do
+              (tess-begin-contour tess)
+              (dotimes (i (length hole))
+                (let ((data (mem-aref hole-ptr :pointer i)))
+                  (tess-vertex tess data data)))
+              (tess-end-contour tess)))
           (tess-end-polygon tess))
 
         ;; clean up allocated memory
         (dotimes (i (length points))
           (foreign-free (mem-aref poly-data :pointer i)))
+        (loop for hole in holes
+              for hole-ptr across hole-data do
+          (dotimes (i (length hole))
+            (foreign-free (mem-aref hole-ptr :pointer i))))
         (dolist (vert *created-points*)
           (foreign-free vert))
         (delete-tess tess)))
     (mapcar (lambda (tri)
-              (if (polygon-clockwise-p (coerce tri 'vector))
-                  (reverse tri)
-                  tri))
+              (let ((clockwise (polygon-clockwise-p (coerce tri 'vector))))
+                (if (or (and cw (not clockwise))
+                        (and (not cw) clockwise))
+                    (reverse tri)
+                    tri)))
             (reverse *polygons*))))
 
