@@ -101,16 +101,20 @@
 (defparameter *created-points* nil)
 
 (defun do-tess-begin (type)
-  ;(format t "begin: ~a~%" type)
+  "Called when a tessellation shape begins. Stores the shape type for later
+  reference."
   (setf *cur-type* type))
 
 (defun do-tess-end ()
-  ;(format t "end~%")
+  "Called with tessellation finishes with a shape. Saves all relevant data and
+  sets up for another shape to come its way."
   (setf *polygons* (append *polygons* *triangles*)
         *triangles* nil
         *cur-triangle* nil))
 
 (defun do-tess-vertex (vertex)
+  "Called when tessellation sends us a vertex. Uses the current shape type to
+  figure out how the vertex will be processed/stored."
   (let ((x (mem-aref vertex :double 0))
         (y (mem-aref vertex :double 1)))
     ;(format t "vert(~a): ~a ~a~%" *cur-type* x y)
@@ -141,9 +145,13 @@
           (push (reverse *cur-triangle*) *triangles*))))))
 
 (defun do-tess-error (err)
+  "Error!!!!"
   (format t "Tessellation error(~a): ~a~%" err (foreign-string-to-lisp (error-string err))))
 
 (defun do-tess-combine (coords vertex-data weights data-out)
+  "Called when tessellation must create a new point. Ideally this is where
+  user data would be merged into a new point, but since we don't support user
+  data, there's nothing to do but create the point and return =]."
   (declare (ignore weights vertex-data))
   (let ((vertex (foreign-alloc :double :count 6))
         (x (mem-aref coords :double 0))
@@ -175,10 +183,12 @@
     (setf (mem-aref data-out :pointer) vertex)))
 
 (defmacro def-c-callback (name &rest args)
+  "Wraps around creation of callbacks to make them not fail on windows."
   (let ((cffi-name #+(or win32 windows) (list name :convention :stdcall)
                    #-(or win32 windows) name))
     `(cffi:defcallback ,cffi-name ,@args)))
 
+;; Define some wrapper callbacks
 (def-c-callback tess-begin-cb :void ((type :int))
   (do-tess-begin type))
 (def-c-callback tess-end-cb :void ()
@@ -202,6 +212,7 @@
     (< sum 0)))
 
 (defun get-winding-rule (wind-keyword)
+  "Get the global winding rule for the keyword passed in."
   (assert (find-if (lambda (k) (eq k wind-keyword)) '(:odd :nonzero :positive :negative :abs-geq-two)))
   (case wind-keyword
     (:odd +tess-winding-odd+)
@@ -211,6 +222,7 @@
     (:abs-geq-two +tess-winding-abs-geq-two+)))
 
 (defun tessellate (points &key (holes nil) (winding-rule :odd) cw)
+  "Tessellate a polygon into triangles."
   ;; if we rebind these with let, we can make the entire thing thread-safe
   (let ((*polygons* nil)
         (*triangles* nil)
