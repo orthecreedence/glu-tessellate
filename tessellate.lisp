@@ -103,11 +103,13 @@
 (defun do-tess-begin (type)
   "Called when a tessellation shape begins. Stores the shape type for later
   reference."
+  (format t "- Tess begin~%")
   (setf *cur-type* type))
 
 (defun do-tess-end ()
   "Called with tessellation finishes with a shape. Saves all relevant data and
   sets up for another shape to come its way."
+  (format t "- Tess end~%")
   (setf *polygons* (append *polygons* *triangles*)
         *triangles* nil
         *cur-triangle* nil))
@@ -115,6 +117,7 @@
 (defun do-tess-vertex (vertex)
   "Called when tessellation sends us a vertex. Uses the current shape type to
   figure out how the vertex will be processed/stored."
+  (format t "- Tess vert (~a)~%" vertex)
   (let ((x (mem-aref vertex :double 0))
         (y (mem-aref vertex :double 1)))
     ;(format t "vert(~a): ~a ~a~%" *cur-type* x y)
@@ -153,6 +156,7 @@
   user data would be merged into a new point, but since we don't support user
   data, there's nothing to do but create the point and return =]."
   (declare (ignore weights vertex-data))
+  (format t "- Tess combine~%" vertex)
   (let ((vertex (foreign-alloc :double :count 6))
         (x (mem-aref coords :double 0))
         (y (mem-aref coords :double 1))
@@ -182,22 +186,16 @@
     ;                                         (* weight3 vert-data3)))))
     (setf (mem-aref data-out :pointer) vertex)))
 
-(defmacro def-c-callback (name &rest args)
-  "Wraps around creation of callbacks to make them not fail on windows."
-  (let ((cffi-name #+(or win32 windows) (list name :convention :stdcall)
-                   #-(or win32 windows) name))
-    `(cffi:defcallback ,cffi-name ,@args)))
-
 ;; Define some wrapper callbacks
-(def-c-callback tess-begin-cb :void ((type :int))
+(defcallback tess-begin-cb :void ((type :int))
   (do-tess-begin type))
-(def-c-callback tess-end-cb :void ()
+(defcallback tess-end-cb :void ()
   (do-tess-end))
-(def-c-callback tess-vertex-cb :void ((vertex :pointer))
+(defcallback tess-vertex-cb :void ((vertex :pointer))
   (do-tess-vertex vertex))
-(def-c-callback tess-error-cb :void ((err :int))
+(defcallback tess-error-cb :void ((err :int))
   (do-tess-error err))
-(def-c-callback tess-combine-cb :void ((coords :pointer) (vertex :pointer) (weight :pointer) (data-out :pointer))
+(defcallback tess-combine-cb :void ((coords :pointer) (vertex :pointer) (weight :pointer) (data-out :pointer))
   (do-tess-combine coords vertex weight data-out))
 
 (defun polygon-clockwise-p (polygon-points)
@@ -231,6 +229,7 @@
         (*cur-type* nil)
         (*created-points* nil)
         (tess (new-tess)))
+    (format t "- Setting up poly data in FFI.~%")
     (let ((poly-data (foreign-alloc :pointer :count (length points)))
           (hole-data (make-array (length holes))))
       (loop for i from 0
@@ -252,17 +251,25 @@
             (setf (aref hole-data i) hole-ptr))))
       (unwind-protect
         (progn
+          (format t "- Setting callbacks~%")
           (tess-callback tess +tess-begin+ (callback tess-begin-cb))
+          (format t "- tess begin set.~%")
           (tess-callback tess +tess-end+ (callback tess-end-cb))
+          (format t "- tess end set.~%")
           (tess-callback tess +tess-vertex+ (callback tess-vertex-cb))
+          (format t "- tess vertex set.~%")
           (tess-callback tess +tess-error+ (callback tess-error-cb))
+          (format t "- tess error set.~%")
           (tess-callback tess +tess-combine+ (callback tess-combine-cb))
+          (format t "- tess combine set.~%")
 
           ;; set the winding rule
+          (format t "- Set winding rule.~%")
           (let ((wind (coerce (get-winding-rule winding-rule) 'double-float)))
             (tess-property tess +tess-winding-rule+ wind))
 
           ;; triangulate!
+          (format t "- Begin triangulation.~%")
           (tess-begin-polygon tess (null-pointer))
           (tess-begin-contour tess)
           (dotimes (i (length points))
