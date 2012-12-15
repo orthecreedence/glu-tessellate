@@ -182,16 +182,21 @@
     ;                                         (* weight3 vert-data3)))))
     (setf (mem-aref data-out :pointer) vertex)))
 
+(defmacro def-c-callback (name &rest args)
+  (let ((cffi-name #+(or win32 windows) (list name :convention :stdcall)
+                   #-(or win32 windows) name))
+    `(cffi:defcallback ,cffi-name ,@args)))
+
 ;; Define some wrapper callbacks
-(defcallback tess-begin-cb :void ((type :int))
+(def-c-callback tess-begin-cb :void ((type :int))
   (do-tess-begin type))
-(defcallback tess-end-cb :void ()
+(def-c-callback tess-end-cb :void ()
   (do-tess-end))
-(defcallback tess-vertex-cb :void ((vertex :pointer))
+(def-c-callback tess-vertex-cb :void ((vertex :pointer))
   (do-tess-vertex vertex))
-(defcallback tess-error-cb :void ((err :int))
+(def-c-callback tess-error-cb :void ((err :int))
   (do-tess-error err))
-(defcallback tess-combine-cb :void ((coords :pointer) (vertex :pointer) (weight :pointer) (data-out :pointer))
+(def-c-callback tess-combine-cb :void ((coords :pointer) (vertex :pointer) (weight :pointer) (data-out :pointer))
   (do-tess-combine coords vertex weight data-out))
 
 (defun polygon-clockwise-p (polygon-points)
